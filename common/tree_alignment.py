@@ -117,9 +117,9 @@ def align_trees_multiple(trees, distance_function=node_distance, gap_penalty=GAP
     pairs = {}
     for i in range(len(trees)):
         for j in range(i + 1, len(trees)):
-            a = trees[i]
-            b = trees[j]
-            pairs[(i, j)] = (xml.parseString(a), xml.parseString(b))
+            a = tt.purge_non_element_nodes(xml.parseString(trees[i]))
+            b = tt.purge_non_element_nodes(xml.parseString(trees[j]))
+            pairs[(i, j)] = (a, b)
 
     # Perform pairwise alignments
     distances = np.full((len(trees), len(trees)), np.inf)

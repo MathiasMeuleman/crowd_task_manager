@@ -119,7 +119,9 @@ def task(variable):
     xml = task['xml']
     xml2 = re.sub(r'\s+', ' ', xml)
     print(xml2)
-    return render_template("task.html", task=task, xml=xml2)
+    username = request.args.get('user')
+    print(username)
+    return render_template("task.html", task=task, xml=xml2, username=username)
 
 
 # display task info, slice, and xml
@@ -134,7 +136,9 @@ def task_verify(variable):
     xml = task['xml']
     xml2 = re.sub(r'\s+', ' ', xml)
     print(xml2)
-    return render_template("task_verify.html", task=task, xml=xml2)
+    username = request.args.get('user')
+    print(username)
+    return render_template("task_verify.html", task=task, xml=xml2, username=username)
 
 
 # getxml data

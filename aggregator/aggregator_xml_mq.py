@@ -30,9 +30,9 @@ def callback(ch, method, properties, body):
     # results = db[settings.result_collection_name].find({"task_id" : task_id})
 
     aligned_trees = ta.align_trees_multiple(results)
-
+    print([x.toprettyxml() for x in aligned_trees])
     final_tree, consensus_per_node = ta.build_consensus_tree(aligned_trees)
-
+    print(final_tree.toprettyxml())
     # print(final_tree.toprettyxml())
     # Update task status
     status_update_msg = {

@@ -192,17 +192,18 @@ def main():
                             mycol2 = db['sheets']
                             myquery2 = {"name": score}
                             mydoc2 = mycol2.find_one(myquery2)
-                            status = 'verification' if (mydoc2['edit_action'] == mydoc2['verify_action']) else 'annotation'
+                            # status = 'verification' if (mydoc2['edit_action'] == mydoc2['verify_action']) else 'annotation'
+                            status = 'annotation'
 
                             task_id = create_task_from_slice(measure_slice, status)
                             print(datetime.now(), 'created task ', task_id)
-                            if((mydoc2['source'] == 'CE') and (mydoc2['edit_action'] != mydoc2['verify_action']) ):
+                            if((mydoc2['source'] == 'CE') and (status == 'annotation') ):
                                 submit_task_to_ce(task_id)
                                 print(
                                     datetime.now(),
                                     'sent message to ce_communicator for ',
                                     task_id)
-                            elif((mydoc2['source'] == 'CE') and (mydoc2['edit_action'] == mydoc2['verify_action']) ):
+                            elif((mydoc2['source'] == 'CE') and (status == 'verification') ):
                                 send_message(
                                     'ce_communicator_queue',
                                     'ce_communicator_queue',
