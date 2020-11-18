@@ -1,19 +1,16 @@
+import datetime
+import sys
+import common.file_system_manager as fsm
+import pdf_to_mei.measure_detector.measure_detector as detector
+import os
+from uuid import uuid4
+from lxml import etree
+from tqdm import tqdm
+
+sys.path.append("..")
+
+
 def run(sheet_name):
-    import datetime
-    import sys
-    sys.path.append("..")
-    import common.file_system_manager as fsm
-
-    from glob import glob
-    import json
-    import os
-    from uuid import uuid4
-
-    from lxml import etree
-    from PIL import Image, ImageFont
-    from PIL.ImageDraw import ImageDraw
-    import requests
-    from tqdm import tqdm
 
     version = '1.0.0'
 
@@ -42,39 +39,16 @@ def run(sheet_name):
     </mei>'''.encode()
 
 
-    def draw_boxes(image_path, measures):
-        image = Image.open(image_path).convert('RGBA')
-        overlay = Image.new('RGBA', image.size)
-        image_draw = ImageDraw(overlay)
-
-        for measure in measures:
-            image_draw.rectangle([int(measure['left']), int(measure['top']), int(measure['right']), int(measure['bottom'])],
-                                 fill='#00FFFF1B')
-        for m, measure in enumerate(measures):
-            image_draw.rectangle([int(measure['left']), int(measure['top']), int(measure['right']), int(measure['bottom'])],
-                                 outline='#008888', width=2)
-
-        result_image = Image.alpha_composite(image, overlay).convert('RGB')
-
-        target_dir = os.path.join(os.path.dirname(image_path), 'bboxes')
-        os.makedirs(target_dir, exist_ok=True)
-
-        basename = os.path.basename(image_path)
-        result_path = os.path.join(target_dir, basename)
-        result_image.save(result_path)
-
     # Detect measures
     page_path = fsm.get_sheet_pages_directory(sheet_name)
     image_paths = sorted([str(p.resolve()) for p in page_path.iterdir() if p.is_file()], key = lambda x : int(os.path.basename(x).split('_')[1].split('.')[0]))
 
-    pages = []
+    results = []
 
     tqdm.write(f'Detecting measures in {len(image_paths)} images...')
     for image_path in tqdm(image_paths, unit='img'):
-        with open(image_path, 'rb') as image:
-            response = requests.post('http://localhost:8000/upload', files={'image': image})
-        measures = json.loads(response.content.decode('utf-8'))['measures']
-        pages.append({'path': image_path, 'measures': measures})
+        page = detector.detect_measures(image_path)
+        results.append({'path': image_path, 'page': page})
 
     # Generate MEI file
     xml_parser = etree.XMLParser(remove_blank_text=True)
@@ -98,68 +72,63 @@ def run(sheet_name):
 
     mei_section.append(etree.Element('pb'))
 
-    cur_ulx = 0
-    cur_measure = 1
+    cur_measure, cur_staff = 1, 1
 
-    for p, page in enumerate(pages):
-        image = Image.open(page['path'])
-        image_width, image_height = image.size
-        image.close()
-
-        measures = page['measures']
-        print(measures)
-
-        # TODO: restore this functionality in some other way?
-        # if args.make_images:
-        #     draw_boxes(page['path'], measures)
+    for p, result in enumerate(results):
+        page, path = result['page'], result['path']
 
         mei_surface = etree.Element('surface')
         mei_surface.attrib['{http://www.w3.org/XML/1998/namespace}id'] = 'surface_' + str(uuid4())
         mei_surface.attrib['n'] = str(p + 1)
         mei_surface.attrib['ulx'] = str(0)
         mei_surface.attrib['uly'] = str(0)
-        mei_surface.attrib['lrx'] = str(image_width - 1)
-        mei_surface.attrib['lry'] = str(image_height - 1)
+        mei_surface.attrib['lrx'] = str(page.width - 1)
+        mei_surface.attrib['lry'] = str(page.height - 1)
         mei_facsimile.append(mei_surface)
 
         mei_graphic = etree.Element('graphic')
         mei_graphic.attrib['{http://www.w3.org/XML/1998/namespace}id'] = 'graphic_' + str(uuid4())
-        mei_graphic.attrib['target'] = os.path.basename(page['path'])
-        mei_graphic.attrib['width'] = str(image_width)
-        mei_graphic.attrib['height'] = str(image_height)
+        mei_graphic.attrib['target'] = os.path.basename(path)
+        mei_graphic.attrib['width'] = str(page.width)
+        mei_graphic.attrib['height'] = str(page.height)
         mei_surface.append(mei_graphic)
 
-        for m, measure in enumerate(measures):
-            print(measure)
-            mei_zone = etree.Element('zone')
-            mei_zone_id = 'zone_' + str(uuid4())
-            mei_zone.attrib['{http://www.w3.org/XML/1998/namespace}id'] = mei_zone_id
-            mei_zone.attrib['type'] = 'measure'
-            mei_zone.attrib['ulx'] = str(int(measure['ulx']))
-            mei_zone.attrib['uly'] = str(int(measure['uly']))
-            mei_zone.attrib['lrx'] = str(int(measure['lrx']))
-            mei_zone.attrib['lry'] = str(int(measure['lry']))
-            mei_surface.append(mei_zone)
+        for s, system in enumerate(page.systems):
+            for m, measure in enumerate(system.measures):
 
-            mei_measure = etree.Element('measure')
-            mei_measure.attrib['{http://www.w3.org/XML/1998/namespace}id'] = 'measure_' + str(uuid4())
-            mei_measure.attrib['n'] = str(cur_measure)
-            mei_measure.attrib['label'] = str(cur_measure)
-            mei_measure.attrib['facs'] = f'#{mei_zone_id}'
-            mei_section.append(mei_measure)
-            cur_measure += 1
+                mei_measure = etree.Element('measure')
+                mei_measure.attrib['{http://www.w3.org/XML/1998/namespace}id'] = 'measure_' + str(uuid4())
+                mei_measure.attrib['n'] = str(cur_measure)
+                mei_measure.attrib['label'] = str(cur_measure)
+                mei_section.append(mei_measure)
 
-            if len(measures) > m + 1 and measures[m + 1]['ulx'] < measure['ulx']:
-                mei_section.append(etree.Element('sb'))
-            elif len(measures) <= m + 1:
-                mei_section.append(etree.Element('sb'))
+                for st, staff in enumerate(measure.staffs):
+                    mei_zone = etree.Element('zone')
+                    mei_zone_id = 'zone_' + str(uuid4())
+                    mei_zone.attrib['{http://www.w3.org/XML/1998/namespace}id'] = mei_zone_id
+                    mei_zone.attrib['type'] = 'staff'
+                    mei_zone.attrib['ulx'] = str(int(staff.ulx))
+                    mei_zone.attrib['uly'] = str(int(staff.uly))
+                    mei_zone.attrib['lrx'] = str(int(staff.lrx))
+                    mei_zone.attrib['lry'] = str(int(staff.lry))
+                    mei_surface.append(mei_zone)
 
+                    mei_staff = etree.Element('staff')
+                    mei_staff.attrib['{http://www.w3.org/XML/1998/namespace}id'] = 'staff_' + str(uuid4())
+                    mei_staff.attrib['n'] = str(cur_staff)
+                    mei_staff.attrib['label'] = str(cur_staff)
+                    mei_staff.attrib['facs'] = f'#{mei_zone_id}'
+                    mei_measure.append(mei_staff)
+
+                    cur_staff += 1
+                cur_measure += 1
+            mei_section.append(etree.Element('sb'))
         mei_section.append(etree.Element('pb'))
 
     mei_path = fsm.get_sheet_whole_directory(sheet_name)
     mei_file_dir = mei_path / "aligned.mei"
     with open(str(mei_file_dir), 'wb') as file:
         xml = etree.ElementTree(mei)
-        xml.write(file, encoding='utf-8', pretty_print=True, xml_declaration=True)
+        xml.write(file, encoding='utf-8', pretty_print=True)
 
     tqdm.write('Done.')
